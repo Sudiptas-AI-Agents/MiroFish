@@ -116,6 +116,7 @@ def setup_oasis_logging(log_dir: str):
 
 
 try:
+    from app.utils.llm_http import with_rate_limit_retry
     from camel.models import ModelFactory
     from camel.types import ModelPlatformType
     import oasis
@@ -454,10 +455,10 @@ class TwitterSimulationRunner:
         
         print(f"LLM配置: model={llm_model}, base_url={llm_base_url[:40] if llm_base_url else '默认'}...")
         
-        return ModelFactory.create(
+        return with_rate_limit_retry(ModelFactory.create(
             model_platform=ModelPlatformType.OPENAI,
             model_type=llm_model,
-        )
+        ))
     
     def _get_active_agents_for_round(
         self, 

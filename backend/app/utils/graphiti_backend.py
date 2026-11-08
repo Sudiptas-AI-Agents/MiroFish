@@ -36,10 +36,12 @@ from graphiti_core.search.search_config_recipes import (
     EDGE_HYBRID_SEARCH_RRF,
     NODE_HYBRID_SEARCH_RRF,
 )
+from openai import AsyncOpenAI
 from pydantic import BaseModel, Field, ValidationError, create_model
 from zep_cloud import NotFoundError
 
 from ..config import Config
+from .llm_http import async_rate_limit_retry_client
 from .logger import get_logger
 
 logger = get_logger("mirofish.graphiti")
@@ -613,6 +615,14 @@ class GraphitiBackend:
         return [_zep_edge(edge) for edge in self._run(self._store.node_edges(node_uuid))]
 
 
+def _retrying_openai_client() -> AsyncOpenAI:
+    return AsyncOpenAI(
+        api_key=Config.LLM_API_KEY or "unset",
+        base_url=Config.LLM_BASE_URL,
+        http_client=async_rate_limit_retry_client(),
+    )
+
+
 @lru_cache(maxsize=1)
 def get_graphiti_backend() -> GraphitiBackend:
     """Return the process-wide backend, creating Neo4j indexes on first use."""
@@ -634,6 +644,7 @@ def get_graphiti_backend() -> GraphitiBackend:
                 model=Config.LLM_MODEL_NAME,
                 small_model=Config.LLM_MODEL_NAME,
             ),
+            client=_retrying_openai_client(),
             # Measured 2026-11-08: these models answer json_schema requests in
             # prose through LiteLLM, but follow a schema given in the prompt.
             structured_output_mode="json_object",
@@ -646,6 +657,7 @@ def get_graphiti_backend() -> GraphitiBackend:
                 embedding_model=Config.EMBEDDING_MODEL_NAME,
                 embedding_dim=Config.EMBEDDING_DIM,
             ),
+            client=_retrying_openai_client(),
         ),
         cross_encoder=_KeepOrderReranker(),
         max_coroutines=Config.GRAPHITI_MAX_CONCURRENCY,
