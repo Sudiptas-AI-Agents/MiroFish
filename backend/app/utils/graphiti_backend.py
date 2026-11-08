@@ -11,13 +11,15 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import threading
+import types
 import uuid as uuidlib
 from collections import defaultdict
 from datetime import datetime, timezone
 from functools import lru_cache
 from types import SimpleNamespace
-from typing import Any, Coroutine, Optional
+from typing import Any, Coroutine, Optional, Union, get_args, get_origin
 
 # Graphiti reads this at import time; the homelab sends no telemetry.
 os.environ.setdefault("GRAPHITI_TELEMETRY_ENABLED", "false")
@@ -30,6 +32,7 @@ from graphiti_core.embedder.openai import OpenAIEmbedder, OpenAIEmbedderConfig
 from graphiti_core.errors import GroupsEdgesNotFoundError, NodeNotFoundError
 from graphiti_core.helpers import SAFE_CYPHER_IDENTIFIER_PATTERN
 from graphiti_core.llm_client.config import LLMConfig
+from graphiti_core.llm_client.errors import EmptyResponseError
 from graphiti_core.llm_client.openai_generic_client import OpenAIGenericClient
 from graphiti_core.nodes import EntityNode, EpisodeType, Node
 from graphiti_core.search.search_config_recipes import (
@@ -49,6 +52,9 @@ logger = get_logger("mirofish.graphiti")
 GRAPH_ID_PREFIX = "mirofish_"
 _READ_TIMEOUT_SECONDS = 120.0
 _LLM_VALIDATION_ATTEMPTS = 5
+EPISODE_ATTEMPTS = 3
+# A backslash not starting a valid JSON escape, which json.loads rejects.
+_INVALID_JSON_ESCAPE = re.compile(r'\\(?!["\\/bfnrtu])')
 _NEXT_CURSOR_HEADER = "zep-next-cursor"
 
 
@@ -136,38 +142,91 @@ def ontology_to_graphiti(ontology: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _example_value(annotation: Any, description: str | None) -> Any:
+    origin, arguments = get_origin(annotation), get_args(annotation)
+    if origin in (Union, types.UnionType):
+        return None if type(None) in arguments else _example_value(arguments[0], description)
+    if origin is list:
+        return [_example_value(arguments[0], None)] if arguments else []
+    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+        return _example_object(annotation)
+    if annotation is int:
+        return 0
+    if annotation is float:
+        return 0.0
+    if annotation is bool:
+        return False
+    return f"<{description or 'text'}>"
+
+
+def _example_object(model: type[BaseModel]) -> dict[str, Any]:
+    return {
+        name: _example_value(info.annotation, info.description)
+        for name, info in model.model_fields.items()
+    }
+
+
+def _reply_format_instruction(model: type[BaseModel]) -> str:
+    example = json.dumps(_example_object(model), ensure_ascii=False)
+    return (
+        "\n\nReply with one JSON object using exactly these keys. This example only "
+        f"shows the shape, so fill in your real answer: {example}\n"
+        "Use null for an optional value you do not know. Do not output a JSON schema."
+    )
+
+
+class _NoCacheCompletions:
+    """Bypass LiteLLM's shared response cache on every extraction call.
+
+    The cache returned the same bad reply to identical retries (17 of 17 repeated
+    prompts in replay), and Graphiti's internal retries cannot be told apart from
+    first attempts here. Other MiroFish LLM calls stay cacheable.
+    """
+
+    def __init__(self, completions: Any):
+        self._completions = completions
+
+    async def create(self, **kwargs: Any) -> Any:
+        return await self._completions.create(extra_body={"cache": {"no-cache": True}}, **kwargs)
+
+
 class CappedLLMClient(OpenAIGenericClient):
     """Keeps Graphiti inside MiroFish's share of the LiteLLM key's request limit."""
 
     def __init__(self, max_concurrency: int, **kwargs: Any):
         super().__init__(**kwargs)
         self._semaphore = asyncio.Semaphore(max_concurrency)
+        self.client = SimpleNamespace(
+            chat=SimpleNamespace(completions=_NoCacheCompletions(self.client.chat.completions))
+        )
 
     async def generate_response(
         self, messages: list[Any], response_model: Any = None, *args: Any, **kwargs: Any
     ) -> dict[str, Any]:
-        # Graphiti validates replies only after this returns, with no retry, and
-        # these models sometimes return the schema itself instead of the data.
+        # Graphiti validates replies only after this returns, with no retry.
+        # response_model is withheld from the parent so it cannot append the raw
+        # JSON schema: in replay, these models returned that schema in 47% of calls.
+        instruction = "" if response_model is None else _reply_format_instruction(response_model)
         nudge = ""
         for attempt in range(1, _LLM_VALIDATION_ATTEMPTS + 1):
             # The parent appends to the prompt in place, so each try gets a copy.
             attempt_messages = [message.model_copy() for message in messages]
-            if nudge and attempt_messages:
-                attempt_messages[-1].content += nudge
-            async with self._semaphore:
-                reply = await super().generate_response(
-                    attempt_messages, response_model, *args, **kwargs
-                )
-            if response_model is None:
-                return reply
+            if attempt_messages:
+                attempt_messages[-1].content += instruction + nudge
             try:
+                async with self._semaphore:
+                    reply = await super().generate_response(
+                        attempt_messages, None, *args, **kwargs
+                    )
+                if response_model is None:
+                    return reply
                 # Dropping unknown keys matters: Graphiti stores attribute replies
                 # as Neo4j properties, which cannot hold a stray nested object.
                 return response_model.model_validate(reply).model_dump()
-            except ValidationError:
+            except (ValidationError, json.JSONDecodeError, EmptyResponseError) as error:
                 if attempt == _LLM_VALIDATION_ATTEMPTS:
                     raise
-                logger.warning("LLM reply did not match %s, retrying", response_model.__name__)
+                logger.warning("Unusable LLM reply (%s), retrying", type(error).__name__)
                 nudge = "\n\nReturn the extracted data as JSON, not the schema."
         raise AssertionError("unreachable")
 
@@ -175,7 +234,9 @@ class CappedLLMClient(OpenAIGenericClient):
     def _strip_code_fences(text: str) -> str:
         """Keep the last JSON value: some models echo the schema before answering."""
 
-        stripped = OpenAIGenericClient._strip_code_fences(text)
+        stripped = _INVALID_JSON_ESCAPE.sub(
+            r"\\\\", OpenAIGenericClient._strip_code_fences(text)
+        )
         decoder = json.JSONDecoder()
         start, end, position = 0, len(stripped), 0
         try:
@@ -438,19 +499,28 @@ class GraphitiBackend:
         state = self._episodes[episode_uuid]
         # Graphiti requires episodes of one group to be added sequentially.
         async with self._group_locks[graph_id]:
-            try:
-                await self._store.add_episode(
-                    graph_id,
-                    f"episode-{episode_uuid}",
-                    data,
-                    source_description or "MiroFish",
-                    reference_time,
-                    ontology,
-                )
-                state.processed = True
-            except Exception as error:
-                logger.error("Graphiti ingestion failed for %s: %s", graph_id, error)
-                state.error = str(error) or type(error).__name__
+            for attempt in range(1, EPISODE_ATTEMPTS + 1):
+                try:
+                    await self._store.add_episode(
+                        graph_id,
+                        f"episode-{episode_uuid}",
+                        data,
+                        source_description or "MiroFish",
+                        reference_time,
+                        ontology,
+                    )
+                    state.error = None
+                    state.processed = True
+                    return
+                except Exception as error:
+                    # Safe to repeat: Graphiti saves the episode only after
+                    # extraction, and deduplicates entities and facts on re-add.
+                    logger.error(
+                        "Graphiti ingestion attempt %s/%s failed for %s: %s",
+                        attempt, EPISODE_ATTEMPTS, graph_id, error,
+                    )
+                    state.error = str(error) or type(error).__name__
+            logger.error("Graphiti ingestion failed for %s after retries", graph_id)
 
     def _new_episode(self) -> str:
         episode_uuid = str(uuidlib.uuid4())

@@ -1,0 +1,330 @@
+{
+ "entities": {
+  "GovernmentOfficial": {
+   "doc": "Elected or appointed official who makes policy and budget decisions, distinct from the city body ...",
+   "fields": {
+    "full_name": "Full name of the official",
+    "title": "Official title such as Mayor or Council Member",
+    "office_held": "Office or position currently held"
+   }
+  },
+  "Librarian": {
+   "doc": "Library staff member or head librarian who speaks for the library and mobilizes community support",
+   "fields": {
+    "full_name": "Full name of the librarian",
+    "position": "Job title within the library system",
+    "workplace": "Library or institution the person works for"
+   }
+  },
+  "MediaOutlet": {
+   "doc": "News organization that reports on the budget dispute and amplifies statements from both sides",
+   "fields": {
+    "org_name": "Name of the media organization",
+    "medium_type": "Format such as newspaper, TV, radio or online",
+    "coverage_area": "Geographic region the outlet covers"
+   }
+  },
+  "LaborUnion": {
+   "doc": "Organized collective of workers that mobilizes members and protests decisions affecting public se...",
+   "fields": {
+    "org_name": "Name of the union",
+    "sector": "Industry or service sector the union represents",
+    "membership_size": "Approximate number of members"
+   }
+  },
+  "CityGovernment": {
+   "doc": "Municipal government body and its departments that control the budget and receive protests",
+   "fields": {
+    "org_name": "Name of the municipal body",
+    "jurisdiction": "City or area under its authority",
+    "department": "Specific department such as budget office or public works"
+   }
+  },
+  "PublicLibrary": {
+   "doc": "The public library institution facing closure, with its own official account and service community",
+   "fields": {
+    "org_name": "Name of the library",
+    "location": "Physical location or neighborhood served",
+    "service_population": "Community groups that depend on the library"
+   }
+  },
+  "CommunityResident": {
+   "doc": "Local resident, parent or voter who reacts on social media and signs petitions, distinct from nam...",
+   "fields": {
+    "full_name": "Name or online handle of the resident",
+    "neighborhood": "Area of the city where the resident lives",
+    "stakeholder_role": "Role such as parent, voter or petition signer"
+   }
+  },
+  "Student": {
+   "doc": "Young person enrolled in local schools who uses the library and whose voice appears mainly throug...",
+   "fields": {
+    "full_name": "Name or handle of the student",
+    "school_level": "Level of education such as elementary or high school",
+    "affiliation": "School or group the student belongs to"
+   }
+  },
+  "Person": {
+   "doc": "Fallback type for any individual who does not fit a more specific person type, such as unaffiliat...",
+   "fields": {
+    "full_name": "Name or online handle of the person",
+    "role": "Informal role or description in the discussion",
+    "location": "Where the person is based"
+   }
+  },
+  "Organization": {
+   "doc": "Fallback type for any group, business or institution not covered by a more specific organization ...",
+   "fields": {
+    "org_name": "Name of the organization",
+    "org_type": "Category such as nonprofit, business or community group",
+    "location": "Where the organization operates"
+   }
+  }
+ },
+ "edges": {
+  "WORKS_FOR": {
+   "doc": "Employment or service relationship between an individual and an institution",
+   "fields": {
+    "details": "Additional details about this ontology type."
+   },
+   "source_targets": [
+    [
+     "Librarian",
+     "PublicLibrary"
+    ],
+    [
+     "GovernmentOfficial",
+     "CityGovernment"
+    ],
+    [
+     "Person",
+     "Organization"
+    ]
+   ]
+  },
+  "FUNDS": {
+   "doc": "Municipal body allocates or withholds budget from a public institution",
+   "fields": {
+    "details": "Additional details about this ontology type."
+   },
+   "source_targets": [
+    [
+     "CityGovernment",
+     "PublicLibrary"
+    ],
+    [
+     "CityGovernment",
+     "Organization"
+    ]
+   ]
+  },
+  "PROPOSES_BUDGET_CUT": {
+   "doc": "Official proposes reducing or eliminating funding for an institution",
+   "fields": {
+    "details": "Additional details about this ontology type."
+   },
+   "source_targets": [
+    [
+     "GovernmentOfficial",
+     "PublicLibrary"
+    ],
+    [
+     "GovernmentOfficial",
+     "Organization"
+    ]
+   ]
+  },
+  "OPPOSES": {
+   "doc": "Actor publicly rejects a proposal or the actor behind it on social media",
+   "fields": {
+    "details": "Additional details about this ontology type."
+   },
+   "source_targets": [
+    [
+     "LaborUnion",
+     "GovernmentOfficial"
+    ],
+    [
+     "CommunityResident",
+     "GovernmentOfficial"
+    ],
+    [
+     "Student",
+     "GovernmentOfficial"
+    ],
+    [
+     "Organization",
+     "GovernmentOfficial"
+    ],
+    [
+     "Person",
+     "GovernmentOfficial"
+    ]
+   ]
+  },
+  "SUPPORTS": {
+   "doc": "Actor publicly backs the library, its staff or the petition campaign",
+   "fields": {
+    "details": "Additional details about this ontology type."
+   },
+   "source_targets": [
+    [
+     "CommunityResident",
+     "PublicLibrary"
+    ],
+    [
+     "CommunityResident",
+     "Librarian"
+    ],
+    [
+     "Student",
+     "PublicLibrary"
+    ],
+    [
+     "LaborUnion",
+     "Librarian"
+    ],
+    [
+     "Organization",
+     "PublicLibrary"
+    ],
+    [
+     "Person",
+     "PublicLibrary"
+    ]
+   ]
+  },
+  "REPORTS_ON": {
+   "doc": "Media outlet publishes coverage about an actor or event",
+   "fields": {
+    "details": "Additional details about this ontology type."
+   },
+   "source_targets": [
+    [
+     "MediaOutlet",
+     "GovernmentOfficial"
+    ],
+    [
+     "MediaOutlet",
+     "LaborUnion"
+    ],
+    [
+     "MediaOutlet",
+     "PublicLibrary"
+    ],
+    [
+     "MediaOutlet",
+     "CityGovernment"
+    ],
+    [
+     "MediaOutlet",
+     "CommunityResident"
+    ]
+   ]
+  },
+  "PLANS_PROTEST_AGAINST": {
+   "doc": "Group announces or organizes a protest targeting a decision-maker or venue",
+   "fields": {
+    "details": "Additional details about this ontology type."
+   },
+   "source_targets": [
+    [
+     "LaborUnion",
+     "CityGovernment"
+    ],
+    [
+     "LaborUnion",
+     "GovernmentOfficial"
+    ],
+    [
+     "Organization",
+     "CityGovernment"
+    ],
+    [
+     "CommunityResident",
+     "CityGovernment"
+    ]
+   ]
+  },
+  "RESPONDS_TO": {
+   "doc": "Actor replies publicly to another actor's statement or action",
+   "fields": {
+    "details": "Additional details about this ontology type."
+   },
+   "source_targets": [
+    [
+     "GovernmentOfficial",
+     "LaborUnion"
+    ],
+    [
+     "GovernmentOfficial",
+     "MediaOutlet"
+    ],
+    [
+     "Librarian",
+     "GovernmentOfficial"
+    ],
+    [
+     "LaborUnion",
+     "GovernmentOfficial"
+    ],
+    [
+     "PublicLibrary",
+     "GovernmentOfficial"
+    ],
+    [
+     "CommunityResident",
+     "MediaOutlet"
+    ]
+   ]
+  },
+  "CALLS_TO_ACTION": {
+   "doc": "Actor urges followers or residents to act, such as signing a petition or attending a protest",
+   "fields": {
+    "details": "Additional details about this ontology type."
+   },
+   "source_targets": [
+    [
+     "Librarian",
+     "CommunityResident"
+    ],
+    [
+     "Librarian",
+     "Person"
+    ],
+    [
+     "LaborUnion",
+     "CommunityResident"
+    ],
+    [
+     "CommunityResident",
+     "Person"
+    ]
+   ]
+  },
+  "DEPENDS_ON": {
+   "doc": "Actor relies on the library's services and would be directly affected by closure",
+   "fields": {
+    "details": "Additional details about this ontology type."
+   },
+   "source_targets": [
+    [
+     "Student",
+     "PublicLibrary"
+    ],
+    [
+     "CommunityResident",
+     "PublicLibrary"
+    ],
+    [
+     "LaborUnion",
+     "PublicLibrary"
+    ],
+    [
+     "Person",
+     "PublicLibrary"
+    ]
+   ]
+  }
+ }
+}

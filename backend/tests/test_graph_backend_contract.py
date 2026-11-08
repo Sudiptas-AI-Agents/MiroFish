@@ -2,6 +2,7 @@
 
 import asyncio
 import inspect
+import json
 import time
 from datetime import datetime, timezone
 from types import SimpleNamespace
@@ -431,7 +432,131 @@ def test_llm_retries_when_a_reply_does_not_match_the_model(monkeypatch):
         return await llm.generate_response([Message(role="user", content="q")], Answer)
 
     assert asyncio.run(run()) == {"value": 7}
-    assert prompts[0] == "q" and "mutated" not in prompts[1] and "not the schema" in prompts[1]
+    assert prompts[0].startswith("q") and "mutated" not in prompts[1]
+    assert "not the schema" in prompts[1]
+
+
+def test_invalid_json_escapes_are_repaired():
+    assert json.loads(graphiti_backend.CappedLLMClient._strip_code_fences(r'{"a": "bad \q esc"}'))
+
+
+def _llm(monkeypatch, replies, prompts, n=1):
+    from graphiti_core.llm_client.config import LLMConfig
+    from graphiti_core.llm_client.openai_generic_client import OpenAIGenericClient
+
+    async def fake_generate(self, messages, response_model=None, *args, **kwargs):
+        prompts.append((messages[-1].content, response_model))
+        reply = replies.pop(0)
+        if isinstance(reply, Exception):
+            raise reply
+        return reply
+
+    monkeypatch.setattr(OpenAIGenericClient, "generate_response", fake_generate)
+    return graphiti_backend.CappedLLMClient(n, config=LLMConfig(api_key="x", model="m"))
+
+
+def test_prompt_shows_a_filled_in_example_not_the_json_schema(monkeypatch):
+    from typing import Optional as Opt
+
+    from graphiti_core.prompts.models import Message
+    from pydantic import BaseModel
+
+    class Item(BaseModel):
+        name: str = Field(description="entity name")
+        index: int
+
+    class Answer(BaseModel):
+        items: list[Item] = Field(description="things found")
+        note: Opt[str] = None
+
+    prompts = []
+    llm = _llm(monkeypatch, [{"items": [], "note": None}], prompts)
+
+    asyncio.run(llm.generate_response([Message(role="user", content="q")], Answer))
+
+    text, sent_model = prompts[0]
+    assert sent_model is None  # the parent must not append the raw schema
+    assert "$defs" not in text and '"properties"' not in text
+    assert '"items": [{"name": "<entity name>", "index": 0}]' in text
+    assert '"note": null' in text
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [json.JSONDecodeError("bad", "x", 0), "empty"],
+    ids=["malformed-json", "empty-reply"],
+)
+def test_malformed_or_empty_replies_are_retried(monkeypatch, failure):
+    from graphiti_core.llm_client.errors import EmptyResponseError
+    from graphiti_core.prompts.models import Message
+    from pydantic import BaseModel
+
+    class Answer(BaseModel):
+        value: int
+
+    error = EmptyResponseError("empty") if failure == "empty" else failure
+    llm = _llm(monkeypatch, [error, {"value": 1}], [])
+
+    result = asyncio.run(llm.generate_response([Message(role="user", content="q")], Answer))
+
+    assert result == {"value": 1}
+
+
+def test_every_graphiti_llm_call_bypasses_the_litellm_cache():
+    from graphiti_core.llm_client.config import LLMConfig
+    from graphiti_core.prompts.models import Message
+
+    sent = []
+
+    async def create(**kwargs):
+        sent.append(kwargs)
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content='{"value": 1}'))]
+        )
+
+    fake = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+
+    async def run():
+        llm = graphiti_backend.CappedLLMClient(
+            1, config=LLMConfig(api_key="x", model="m"), client=fake
+        )
+        return await llm._generate_response([Message(role="user", content="q")])
+
+    assert asyncio.run(run()) == {"value": 1}
+    assert sent[0]["extra_body"] == {"cache": {"no-cache": True}}
+    assert sent[0]["messages"][-1]["content"] == "q"
+
+
+class FlakyStore(FakeStore):
+    def __init__(self, failures):
+        super().__init__()
+        self.failures = failures
+        self.attempts = 0
+
+    async def add_episode(self, graph_id, name, body, *args):
+        self.attempts += 1
+        if self.attempts <= self.failures:
+            raise RuntimeError("extraction failed")
+        self.episodes.append((graph_id, body))
+
+
+def test_failed_episode_is_retried_then_succeeds():
+    store = FlakyStore(failures=2)
+    backend = graphiti_backend.GraphitiBackend(store)
+    backend.graph.create(graph_id=GRAPH, name="n", description="d")
+    episode = backend.graph.add(graph_id=GRAPH, type="text", data="x", source_description="s")
+    _wait_processed(backend, episode.uuid_)
+    assert store.attempts == 3 and len(store.episodes) == 1
+
+
+def test_episode_retries_are_limited_and_still_fail_closed():
+    store = FlakyStore(failures=99)
+    backend = graphiti_backend.GraphitiBackend(store)
+    backend.graph.create(graph_id=GRAPH, name="n", description="d")
+    episode = backend.graph.add(graph_id=GRAPH, type="text", data="x", source_description="s")
+    with pytest.raises(RuntimeError, match="extraction failed"):
+        _wait_processed(backend, episode.uuid_)
+    assert store.attempts == graphiti_backend.EPISODE_ATTEMPTS
 
 
 def test_get_zep_client_returns_graphiti_when_selected(monkeypatch, backend):
