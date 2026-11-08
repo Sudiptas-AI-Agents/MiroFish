@@ -117,6 +117,7 @@ def setup_oasis_logging(log_dir: str):
 
 try:
     from app.utils.llm_http import with_rate_limit_retry
+    from simulation_progress import SimulationProgress
     from camel.models import ModelFactory
     from camel.types import ModelPlatformType
     import oasis
@@ -385,6 +386,8 @@ class IPCHandler:
 
 class TwitterSimulationRunner:
     """Twitter模拟运行器"""
+
+    PLATFORM = "twitter"
     
     # Twitter可用动作（不包含INTERVIEW，INTERVIEW只能通过ManualAction手动触发）
     AVAILABLE_ACTIONS = [
@@ -603,6 +606,9 @@ class TwitterSimulationRunner:
         # 初始化IPC处理器
         self.ipc_handler = IPCHandler(self.simulation_dir, self.env, self.agent_graph)
         self.ipc_handler.update_status("running")
+        progress = SimulationProgress(
+            self.PLATFORM, self.simulation_dir, self.config, db_path
+        )
         
         # 执行初始事件
         event_config = self.config.get("event_config", {})
@@ -620,12 +626,15 @@ class TwitterSimulationRunner:
                         action_type=ActionType.CREATE_POST,
                         action_args={"content": content}
                     )
+                    progress.initial_post(agent_id, content)
                 except Exception as e:
                     print(f"  警告: 无法为Agent {agent_id}创建初始帖子: {e}")
             
             if initial_actions:
                 await self.env.step(initial_actions)
                 print(f"  已发布 {len(initial_actions)} 条初始帖子")
+
+        progress.initial_done()
         
         # 主模拟循环
         print("\n开始模拟循环...")
@@ -642,7 +651,10 @@ class TwitterSimulationRunner:
                 self.env, simulated_hour, round_num
             )
             
+            progress.round_start(round_num + 1, simulated_hour)
+
             if not active_agents:
+                progress.round_skipped(round_num + 1)
                 continue
             
             # 构建动作
@@ -653,6 +665,7 @@ class TwitterSimulationRunner:
             
             # 执行动作
             await self.env.step(actions)
+            progress.round_done(round_num + 1)
             
             # 打印进度
             if (round_num + 1) % 10 == 0 or round_num == 0:
@@ -663,6 +676,8 @@ class TwitterSimulationRunner:
                       f"- {len(active_agents)} agents active "
                       f"- elapsed: {elapsed:.1f}s")
         
+        progress.finish(total_rounds)
+
         total_elapsed = (datetime.now() - start_time).total_seconds()
         print(f"\n模拟循环完成!")
         print(f"  - 总耗时: {total_elapsed:.1f}秒")
