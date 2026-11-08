@@ -55,7 +55,7 @@ def test_run_writes_actions_and_simulation_end(
     config = {
         "simulation_id": "sim_test",
         "agent_configs": [{"agent_id": 0, "entity_name": "Alice"}],
-        "time_config": {"total_simulation_hours": 2, "minutes_per_round": 60},
+        "time_config": {"total_simulation_hours": 12, "minutes_per_round": 60},
         "event_config": {"initial_posts": [{"poster_agent_id": 0, "content": "hello"}]},
     }
     config_path = tmp_path / "simulation_config.json"
@@ -73,8 +73,9 @@ def test_run_writes_actions_and_simulation_end(
     monkeypatch.setattr(script.oasis, "make", lambda **kwargs: env)
     monkeypatch.setattr(script, "IPCHandler", FakeIPC)
     monkeypatch.setattr(getattr(script, runner_class), "_create_model", lambda self: None)
-    # Round 1 has no active agents; round 2 has one.
-    rounds = iter([[], [(0, agent)]])
+    # Rounds 1 and 10 are active because the scripts print progress on those.
+    active = [(0, agent)]
+    rounds = iter([active] + [[]] * 8 + [active] + [[]] * 2)
     monkeypatch.setattr(
         getattr(script, runner_class),
         "_get_active_agents_for_round",
@@ -82,18 +83,18 @@ def test_run_writes_actions_and_simulation_end(
     )
 
     runner = getattr(script, runner_class)(str(config_path), wait_for_commands=False)
-    asyncio.run(runner.run(max_rounds=2))
+    asyncio.run(runner.run(max_rounds=12))
 
     log = tmp_path / platform / "actions.jsonl"
     events = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
     kinds = [event.get("event_type", "action") for event in events]
     assert kinds[0] == "simulation_start"
-    assert kinds.count("round_start") == kinds.count("round_end") == 3
-    assert [e["round"] for e in events if e.get("event_type") == "round_end"] == [0, 1, 2]
+    assert kinds.count("round_start") == kinds.count("round_end") == 13
+    assert [e["round"] for e in events if e.get("event_type") == "round_end"] == list(range(13))
     initial = next(e for e in events if "event_type" not in e)
     assert initial["agent_name"] == "Alice" and initial["action_type"] == "CREATE_POST"
     assert events[-1]["event_type"] == "simulation_end"
-    assert events[-1]["total_rounds"] == 2
+    assert events[-1]["total_rounds"] == 12
 
 
 def test_runner_treats_a_lone_platform_as_all_complete(monkeypatch, tmp_path):
