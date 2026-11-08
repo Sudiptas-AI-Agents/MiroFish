@@ -23,7 +23,10 @@ RUN npm ci \
 # 复制项目源码
 COPY . .
 
+# 构建前端；相对 API 地址由 vite preview 代理到后端
+RUN VITE_API_BASE_URL=/ npm run build
+
 EXPOSE 3000 5001
 
-# 同时启动前后端（开发模式）
-CMD ["npm", "run", "dev"]
+# 同时启动前后端（生产模式：构建产物 + waitress）
+CMD ["npm", "run", "start"]

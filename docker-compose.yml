@@ -1,14 +1,29 @@
 services:
   mirofish:
-    image: ghcr.io/666ghj/mirofish:latest
-    # 加速镜像（如拉取缓慢可替换上方地址）
-    # image: ghcr.nju.edu.cn/666ghj/mirofish:latest
+    # Built from this fork by .github/workflows/docker-image.yml.
+    # MIROFISH_IMAGE_TAG is the workflow's commit tag, e.g. sha-abc1234.
+    image: ghcr.io/sudiptas-ai-agents/mirofish:${MIROFISH_IMAGE_TAG:?set MIROFISH_IMAGE_TAG to a commit tag}
     container_name: mirofish
     env_file:
-      - .env
+      - path: .env
+        required: false
+      # Portainer writes its stack variables to stack.env.
+      - path: stack.env
+        required: false
     ports:
-      - "3000:3000"
+      - "3070:3000"
       - "5001:5001"
     restart: unless-stopped
     volumes:
-      - ./backend/uploads:/app/backend/uploads
+      - /mnt/projects/MiroFish/backend/uploads:/app/backend/uploads
+    healthcheck:
+      test: ["CMD", "/app/backend/.venv/bin/python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:5001/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

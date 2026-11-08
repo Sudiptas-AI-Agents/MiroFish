@@ -42,7 +42,13 @@ def main():
     debug = Config.DEBUG
     
     # 启动服务
-    app.run(host=host, port=port, debug=debug, threaded=True)
+    if debug:
+        app.run(host=host, port=port, debug=True, threaded=True)
+    else:
+        from waitress import serve
+
+        # One process on purpose: tasks and graph lifecycle locks are in-memory.
+        serve(app, host=host, port=port, threads=32)
 
 
 if __name__ == '__main__':

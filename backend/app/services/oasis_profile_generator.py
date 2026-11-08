@@ -920,6 +920,9 @@ class OasisProfileGenerator:
         import concurrent.futures
         from threading import Lock
         
+        if Config.LLM_MAX_CONCURRENCY:
+            parallel_count = min(parallel_count, Config.LLM_MAX_CONCURRENCY)
+
         # 设置graph_id用于Zep检索
         if graph_id:
             self.graph_id = graph_id

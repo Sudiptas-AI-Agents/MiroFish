@@ -9,7 +9,10 @@
     "dev": "concurrently --kill-others -n \"backend,frontend\" -c \"green,cyan\" \"npm run backend\" \"npm run frontend\"",
     "backend": "cd backend && uv run python run.py",
     "frontend": "cd frontend && npm run dev",
-    "build": "cd frontend && npm run build"
+    "build": "cd frontend && npm run build",
+    "start": "concurrently --kill-others -n \"backend,frontend\" -c \"green,cyan\" \"npm run start:backend\" \"npm run start:frontend\"",
+    "start:backend": "cd backend && .venv/bin/python run.py",
+    "start:frontend": "cd frontend && npm run preview -- --host 0.0.0.0 --port 3000"
   },
   "devDependencies": {
     "concurrently": "^9.2.4"

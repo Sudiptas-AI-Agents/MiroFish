@@ -30,7 +30,30 @@ class Config:
     LLM_MODEL_NAME = os.environ.get('LLM_MODEL_NAME', 'gpt-4o-mini')
     
     # Zep配置
-    ZEP_API_KEY = os.environ.get('ZEP_API_KEY')
+    # Graph backend: graphiti (self-hosted Neo4j, default) or zep (Zep Cloud)
+    GRAPH_BACKEND = os.environ.get('GRAPH_BACKEND', 'graphiti').strip().lower()
+
+    # ponytail: non-secret sentinel so upstream's many "ZEP_API_KEY configured?"
+    # guards pass under Graphiti without being edited.
+    ZEP_API_KEY = os.environ.get('ZEP_API_KEY') or (
+        'graphiti-local' if GRAPH_BACKEND == 'graphiti' else None
+    )
+
+    # Graphiti / Neo4j
+    NEO4J_URI = os.environ.get('NEO4J_URI')
+    NEO4J_USER = os.environ.get('NEO4J_USER')
+    NEO4J_PASSWORD = os.environ.get('NEO4J_PASSWORD')
+    NEO4J_DATABASE = os.environ.get('NEO4J_DATABASE', 'neo4j')
+    EMBEDDING_MODEL_NAME = os.environ.get('EMBEDDING_MODEL_NAME')
+    EMBEDDING_DIM = int(os.environ.get('EMBEDDING_DIM', '768'))
+    GRAPHITI_MAX_CONCURRENCY = int(os.environ.get('GRAPHITI_MAX_CONCURRENCY', '3'))
+    GRAPHITI_EMBED_CONCURRENCY = int(os.environ.get('GRAPHITI_EMBED_CONCURRENCY', '2'))
+    GRAPHITI_INGESTION_TIMEOUT_SECONDS = int(
+        os.environ.get('GRAPHITI_INGESTION_TIMEOUT_SECONDS', '7200')
+    )
+
+    # Upper bound for parallel LLM calls; 0 keeps upstream's defaults.
+    LLM_MAX_CONCURRENCY = int(os.environ.get('LLM_MAX_CONCURRENCY', '0'))
     
     # 文件上传配置
     MAX_CONTENT_LENGTH = 50 * 1024 * 1024  # 50MB
@@ -66,10 +89,17 @@ class Config:
         errors: list[str] = []
         if not cls.LLM_API_KEY:
             errors.append("LLM_API_KEY 未配置")
-        if not cls.ZEP_API_KEY:
-            errors.append("ZEP_API_KEY 未配置")
-        if os.environ.get("ZEP_API_URL"):
-            errors.append("ZEP_API_URL 不受支持；MiroFish 仅连接 Zep Cloud")
+        if cls.GRAPH_BACKEND == 'zep':
+            if not cls.ZEP_API_KEY:
+                errors.append("ZEP_API_KEY 未配置")
+            if os.environ.get("ZEP_API_URL"):
+                errors.append("ZEP_API_URL 不受支持；MiroFish 仅连接 Zep Cloud")
+        elif cls.GRAPH_BACKEND == 'graphiti':
+            for name in ('NEO4J_URI', 'NEO4J_USER', 'NEO4J_PASSWORD', 'EMBEDDING_MODEL_NAME'):
+                if not getattr(cls, name):
+                    errors.append(f"{name} 未配置")
+        else:
+            errors.append(f"GRAPH_BACKEND 无效: {cls.GRAPH_BACKEND}")
         if cls.DEBUG:
             import warnings
             warnings.warn("Flask DEBUG mode is enabled. Do not use in production.", RuntimeWarning)

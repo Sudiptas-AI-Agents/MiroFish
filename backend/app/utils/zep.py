@@ -5,9 +5,10 @@ from __future__ import annotations
 import os
 import time
 from functools import lru_cache
-from typing import Any, Callable, TypeVar
+from typing import Any, Callable, Protocol, TypeVar
 
 import httpx
+from neo4j.exceptions import ServiceUnavailable, SessionExpired, TransientError
 from zep_cloud.client import Zep
 from zep_cloud.core.api_error import ApiError as ZepApiError
 
@@ -17,6 +18,16 @@ from .logger import get_logger
 logger = get_logger("mirofish.zep")
 
 T = TypeVar("T")
+
+
+class GraphBackend(Protocol):
+    """The graph surface the app uses: the Zep SDK, or GraphitiBackend mirroring it.
+
+    tests/test_graph_backend_contract.py pins every call shape against both.
+    """
+
+    graph: Any
+    batch: Any
 
 ZEP_CLOUD_BASE_URL = "https://api.getzep.com/api/v2"
 # Keep request behavior aligned with the zep-cloud 3.25.0 SDK default that
@@ -28,6 +39,14 @@ ZEP_HTTP_REQUEST_TIMEOUT_SECONDS = 60.0
 ZEP_INGESTION_WAIT_TIMEOUT_SECONDS = 600
 MAX_ZEP_SEARCH_QUERY_CHARS = 400
 MAX_ZEP_SEARCH_RESULTS = 50
+
+
+def ingestion_wait_timeout(zep_timeout: int) -> int:
+    """Graphiti extracts locally through a capped LLM, far slower than Zep Cloud."""
+
+    if Config.GRAPH_BACKEND == "graphiti":
+        return Config.GRAPHITI_INGESTION_TIMEOUT_SECONDS
+    return zep_timeout
 
 
 def normalize_zep_search_query(query: Any) -> str:
@@ -62,8 +81,14 @@ def _cached_zep_client(api_key: str, timeout: float) -> Zep:
     )
 
 
-def get_zep_client(api_key: str | None = None, timeout: float | None = None) -> Zep:
-    """Return a process-shared, explicitly configured Zep Cloud client."""
+def get_zep_client(api_key: str | None = None, timeout: float | None = None) -> GraphBackend:
+    """Return the configured process-shared graph backend."""
+
+    if Config.GRAPH_BACKEND == "graphiti":
+        # Imported lazily: Graphiti is heavy and zep deployments never need it.
+        from . import graphiti_backend
+
+        return graphiti_backend.get_graphiti_backend()
 
     # zep-cloud gives ZEP_API_URL precedence even when base_url is explicit.
     # Reject it so this Cloud-only integration cannot silently target a
@@ -95,6 +120,8 @@ def is_retryable_zep_error(error: BaseException) -> bool:
     if isinstance(error, (httpx.TimeoutException, httpx.TransportError)):
         return True
     if isinstance(error, (ConnectionError, TimeoutError, OSError)):
+        return True
+    if isinstance(error, (ServiceUnavailable, SessionExpired, TransientError)):
         return True
     if isinstance(error, ZepApiError):
         status_code = error.status_code

@@ -21,5 +21,11 @@ export default defineConfig({
         secure: false
       }
     }
+  },
+  // Production: `vite preview` serves the built app and inherits server.proxy.
+  preview: {
+    port: 3000,
+    open: false,
+    allowedHosts: true
   }
 })

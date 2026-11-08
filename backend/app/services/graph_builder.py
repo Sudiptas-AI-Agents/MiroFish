@@ -25,6 +25,7 @@ from ..utils.zep import (
     ZEP_INGESTION_WAIT_TIMEOUT_SECONDS,
     call_zep_read_with_retry,
     get_zep_client,
+    ingestion_wait_timeout,
     is_retryable_zep_error,
 )
 from .text_processor import TextProcessor
@@ -636,7 +637,7 @@ class GraphBuilderService:
     ) -> List[str]:
         """Wait for a Batch API terminal state and validate every item."""
 
-        timeout = timeout or ZEP_INGESTION_WAIT_TIMEOUT_SECONDS
+        timeout = timeout or ingestion_wait_timeout(ZEP_INGESTION_WAIT_TIMEOUT_SECONDS)
         start_time = time.time()
         terminal_states = {"succeeded", "partial", "failed", "invalid", "canceled"}
 
