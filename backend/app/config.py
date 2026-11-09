@@ -40,6 +40,9 @@ class Config:
     )
 
     # Graphiti / Neo4j
+    # Dev and prod share one Neo4j. Dev sets mirofish_dev_ so its graphs are
+    # recognisable and this process refuses to touch any other graph.
+    GRAPH_ID_PREFIX = os.environ.get('GRAPH_ID_PREFIX') or 'mirofish_'
     NEO4J_URI = os.environ.get('NEO4J_URI')
     NEO4J_USER = os.environ.get('NEO4J_USER')
     NEO4J_PASSWORD = os.environ.get('NEO4J_PASSWORD')
@@ -67,6 +70,9 @@ class Config:
     # OASIS模拟配置
     OASIS_DEFAULT_MAX_ROUNDS = int(os.environ.get('OASIS_DEFAULT_MAX_ROUNDS', '10'))
     OASIS_SIMULATION_DATA_DIR = os.path.join(os.path.dirname(__file__), '../uploads/simulations')
+    # Close an environment left waiting for interviews after this long; 0 disables.
+    # An open one holds a process and makes the nightly uploads backup skip.
+    SIMULATION_IDLE_CLOSE_SECONDS = int(os.environ.get('SIMULATION_IDLE_CLOSE_SECONDS', '7200'))
     
     # OASIS平台可用动作配置
     OASIS_TWITTER_ACTIONS = [

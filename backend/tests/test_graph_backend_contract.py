@@ -162,6 +162,30 @@ def test_rejects_graph_ids_outside_the_mirofish_namespace(backend):
         backend.graph.delete(graph_id="someone_else")
 
 
+def test_configured_prefix_narrows_the_namespace(backend, monkeypatch):
+    monkeypatch.setattr(graphiti_backend.Config, "GRAPH_ID_PREFIX", "mirofish_dev_")
+
+    with pytest.raises(ValueError, match="mirofish_dev_"):
+        backend.graph.delete(graph_id="mirofish_prod_graph")
+
+
+def test_configured_prefix_cannot_leave_the_mirofish_namespace(backend, monkeypatch):
+    monkeypatch.setattr(graphiti_backend.Config, "GRAPH_ID_PREFIX", "other_")
+
+    with pytest.raises(ValueError):
+        backend.graph.delete(graph_id="other_graph")
+
+
+def test_new_graph_ids_use_the_configured_prefix(monkeypatch):
+    from app.services.graph_builder import GraphBuilderService
+
+    monkeypatch.setattr(graphiti_backend.Config, "GRAPH_ID_PREFIX", "mirofish_dev_")
+    builder = GraphBuilderService.__new__(GraphBuilderService)
+    builder.client = SimpleNamespace(graph=SimpleNamespace(create=lambda **_: None))
+
+    assert builder.create_graph("n").startswith("mirofish_dev_")
+
+
 def test_get_and_delete_of_a_missing_graph_raise_not_found(backend):
     with pytest.raises(NotFoundError):
         backend.graph.get(GRAPH)

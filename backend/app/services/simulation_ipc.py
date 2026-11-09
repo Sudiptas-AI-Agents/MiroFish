@@ -284,6 +284,22 @@ class SimulationIPCClient:
         except (json.JSONDecodeError, OSError):
             return False
 
+    def idle_seconds(self) -> Optional[float]:
+        """Seconds since the last command, or None unless idling in wait-for-commands mode."""
+        # "alive" is only written once rounds finish; they run as "running".
+        if not self.check_env_alive():
+            return None
+        if any(name.endswith('.json') for name in os.listdir(self.commands_dir)):
+            return None
+
+        # Each command adds and removes files here, which updates the folder mtimes.
+        status_file = os.path.join(self.simulation_dir, "env_status.json")
+        last_activity = max(
+            os.path.getmtime(path)
+            for path in (status_file, self.commands_dir, self.responses_dir)
+        )
+        return time.time() - last_activity
+
 
 class SimulationIPCServer:
     """

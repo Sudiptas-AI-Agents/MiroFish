@@ -225,7 +225,7 @@ class GraphBuilderService:
     ) -> str:
         """Create a graph with a caller-durable ID and reconcile lost replies."""
 
-        graph_id = graph_id or f"mirofish_{uuid.uuid4().hex[:16]}"
+        graph_id = graph_id or f"{Config.GRAPH_ID_PREFIX}{uuid.uuid4().hex[:16]}"
         # Persist the client-generated ID before the non-idempotent POST so a
         # later reset can clean up a graph whose successful response was lost.
         if graph_id_callback:

@@ -617,6 +617,25 @@ class SimulationRunner:
         return state
     
     @classmethod
+    def _close_if_idle(cls, simulation_id: str, sim_dir: str) -> None:
+        """Gracefully close an environment nobody has used for the configured time."""
+        limit = Config.SIMULATION_IDLE_CLOSE_SECONDS
+        if limit <= 0:
+            return
+        try:
+            idle = SimulationIPCClient(sim_dir).idle_seconds()
+            if idle is None or idle < limit:
+                return
+            logger.info(f"关闭空闲模拟环境: {simulation_id}, idle={idle:.0f}s")
+            # The process exit lets the monitor publish the terminal status.
+            cls.close_simulation_env(simulation_id)
+        except Exception as error:
+            # Must not reach the monitor's handler, which would fail a finished
+            # run. A sent close also touches the IPC folder, so a retry waits
+            # another full limit.
+            logger.warning(f"关闭空闲模拟环境失败: {simulation_id}, error={error}")
+
+    @classmethod
     def _monitor_simulation(cls, simulation_id: str, locale: str = 'zh'):
         """监控模拟进程，解析动作日志"""
         set_locale(locale)
@@ -653,8 +672,9 @@ class SimulationRunner:
                 
                 # 更新状态
                 cls._save_run_state(state)
+                cls._close_if_idle(simulation_id, sim_dir)
                 time.sleep(2)
-            
+
             # 进程结束后，最后读取一次日志
             if os.path.exists(twitter_actions_log):
                 cls._read_action_log(twitter_actions_log, twitter_position, state, "twitter")

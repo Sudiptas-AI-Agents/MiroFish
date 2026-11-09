@@ -61,8 +61,14 @@ _NEXT_CURSOR_HEADER = "zep-next-cursor"
 def _require_namespace(graph_id: str) -> str:
     """Refuse anything outside MiroFish's slice of the shared database."""
 
-    if not isinstance(graph_id, str) or not graph_id.startswith(GRAPH_ID_PREFIX):
-        raise ValueError(f"graph_id must start with {GRAPH_ID_PREFIX}: {graph_id!r}")
+    # GRAPH_ID_PREFIX is the hard floor, so a bad env value cannot widen access.
+    prefix = Config.GRAPH_ID_PREFIX
+    if (
+        not isinstance(graph_id, str)
+        or not graph_id.startswith(GRAPH_ID_PREFIX)
+        or not graph_id.startswith(prefix)
+    ):
+        raise ValueError(f"graph_id must start with {prefix}: {graph_id!r}")
     return graph_id
 
 
